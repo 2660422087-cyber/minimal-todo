@@ -233,7 +233,7 @@
         <button class="pri-chip" data-pri="2">普通</button>
         <button class="pri-chip" data-pri="1">重要</button>
         <button class="pri-chip" data-pri="0">紧急</button>
-        <span class="due-chip" id="dueChip" style="display:none"></span>
+        <span class="due-chip" id="dueChip">＋ 选日期</span>
       </div>
       <div class="hint">💡 支持「今晚8点」「明天下午3点半」「后天」等自然时间，自动识别创建提醒</div>
     </div>
@@ -754,8 +754,7 @@ function addTodo(){
 /* 截止选择 chip：点击打开日期时间选择器 */
 function updateDueChip(){
   var chip = document.getElementById("dueChip");
-  if(state.selDue){ chip.style.display=""; chip.textContent = "已选 " + dueLabel(state.selDue); }
-  else chip.style.display = "none";
+  chip.textContent = state.selDue ? "已选 " + dueLabel(state.selDue) : "＋ 选日期";
 }
 document.getElementById("dueChip").addEventListener("click", function(){
   document.getElementById("dtInput").value = state.selDue || "";
@@ -1006,6 +1005,7 @@ setInterval(function(){
 function init(){
   load();
   refreshAll();
+  updateDueChip();
   paintTimer();
 }
 document.addEventListener("DOMContentLoaded", init);
