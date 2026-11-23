@@ -105,6 +105,16 @@
   .tag.p1{background:#FFF7E6;color:#D97706}
   .tag.p0{background:#FEF0F1;color:var(--danger)}
   .del-btn{border:none;background:transparent;color:var(--ink3);font-size:16px;cursor:pointer;width:30px;height:30px;flex-shrink:0;line-height:1}
+  /* 右滑操作（编辑/删除） */
+  .todo-wrap{position:relative;overflow:hidden}
+  .todo-wrap:first-child .todo{border-top:none}
+  .todo-actions{position:absolute;top:0;left:0;bottom:0;display:flex}
+  .act{border:none;width:62px;font-size:13px;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+  .act-edit{background:var(--accent)}
+  .act-del{background:var(--danger)}
+  .todo{position:relative;background:var(--card);transform:translateX(0);transition:transform .18s ease;touch-action:pan-y;will-change:transform}
+  .todo.open{transform:translateX(124px)}
+  .todo.dragging{transition:none}
   .empty-tip{text-align:center;padding:36px 0;color:var(--ink3);font-size:13px}
   /* ---------- tabs ---------- */
   nav{
@@ -366,6 +376,19 @@
   </div>
 </div>
 
+<div class="mask" id="editMask">
+  <div class="modal">
+    <h3>编辑待办</h3>
+    <input type="text" id="editText" class="dt-input" placeholder="待办内容">
+    <input type="datetime-local" id="editDt" class="dt-input">
+    <div class="dt-row">
+      <button class="tbtn" id="editClear" style="color:var(--danger)">清除时间</button>
+      <button class="tbtn" id="editCancel">取消</button>
+      <button class="tbtn" id="editSave" style="background:var(--accent);color:#fff;border-color:var(--accent)">保存</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
 "use strict";
@@ -484,11 +507,16 @@ function todoRow(t){
   if(t.due) sub += '<span class="tag due'+(late?" late":"")+'">'+(late?"逾期 · ":"")+dueLabel(t.due)+'</span>';
   if(t.pri === 1) sub += '<span class="tag p1">重要</span>';
   if(t.pri === 0) sub += '<span class="tag p0">紧急</span>';
-  return '<div class="todo'+(t.done?" done":"")+'" data-id="'+t.id+'">'
+  return '<div class="todo-wrap">'
+    + '<div class="todo-actions">'
+    + '<button class="act act-edit" data-edit="'+t.id+'">编辑</button>'
+    + '<button class="act act-del" data-del="'+t.id+'">删除</button>'
+    + '</div>'
+    + '<div class="todo'+(t.done?" done":"")+'" data-swipe="'+t.id+'">'
     + '<button class="chk'+(t.done?" on":"")+'" style="--c:'+c+'" data-chk="'+t.id+'">'
     + '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><path d="M4 12l6 6L20 6"/></svg></button>'
     + '<div class="todo-main"><div class="todo-txt">'+esc(t.text)+'</div><div class="todo-sub">'+sub+'</div></div>'
-    + '<button class="del-btn" data-del="'+t.id+'">×</button>'
+    + '</div>'
     + '</div>';
 }
 function byDuePri(a,b){
@@ -818,8 +846,15 @@ document.getElementById("todayList").addEventListener("click", function(e){
   toggleTodo(b.dataset.done);
 });
 document.getElementById("listArea").addEventListener("click", function(e){
+  var openRow = this.querySelector(".todo.open");
+  if(openRow && !e.target.closest(".act")){
+    openRow.classList.remove("open"); openRow.style.transform = "";
+    return;
+  }
   var chk = e.target.closest("[data-chk]");
   if(chk){ toggleTodo(chk.dataset.chk); return; }
+  var ed = e.target.closest("[data-edit]");
+  if(ed){ openEdit(ed.dataset.edit); return; }
   var del = e.target.closest("[data-del]");
   if(del){
     var id = del.dataset.del;
@@ -835,6 +870,87 @@ function toggleTodo(id){
   });
   save(); refreshAll();
 }
+
+/* 右滑手势：露出编辑/删除按钮（仅横向滑动生效，不影响纵向滚动） */
+var SW_W = 124;
+var swipe = { el:null, startX:0, startY:0, dx:0, lock:null };
+function closeSwipe(except){
+  document.querySelectorAll(".todo.open").forEach(function(el){
+    if(el !== except){ el.classList.remove("open"); el.style.transform = ""; }
+  });
+}
+function snapOpen(el){ el.classList.remove("dragging"); el.style.transform = ""; el.classList.add("open"); }
+function snapClose(el){ el.classList.remove("dragging","open"); el.style.transform = ""; }
+var listAreaEl = document.getElementById("listArea");
+listAreaEl.addEventListener("touchstart", function(e){
+  var el = e.target.closest(".todo");
+  if(!el){ return; }
+  swipe.el = el;
+  swipe.startX = e.touches[0].clientX;
+  swipe.startY = e.touches[0].clientY;
+  swipe.dx = 0;
+  swipe.lock = null;
+}, {passive:true});
+listAreaEl.addEventListener("touchmove", function(e){
+  if(!swipe.el) return;
+  var dx = e.touches[0].clientX - swipe.startX;
+  var dy = e.touches[0].clientY - swipe.startY;
+  if(swipe.lock === null){
+    if(Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+    swipe.lock = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
+    if(swipe.lock === "v"){ swipe.el = null; return; }
+    swipe.el.classList.add("dragging");
+    closeSwipe(swipe.el);
+  }
+  swipe.dx = Math.max(0, Math.min(SW_W, dx));
+  swipe.el.style.transform = "translateX(" + swipe.dx + "px)";
+  if(e.cancelable) e.preventDefault();
+}, {passive:false});
+listAreaEl.addEventListener("touchend", function(){
+  if(!swipe.el) { swipe.lock = null; return; }
+  var el = swipe.el;
+  if(swipe.lock === "h" && swipe.dx >= 60){ snapOpen(el); }
+  else { snapClose(el); }
+  swipe.el = null; swipe.lock = null; swipe.dx = 0;
+});
+listAreaEl.addEventListener("touchcancel", function(){
+  if(swipe.el) snapClose(swipe.el);
+  swipe.el = null; swipe.lock = null; swipe.dx = 0;
+});
+
+/* 编辑待办弹窗 */
+var editId = null;
+function openEdit(id){
+  var t = null;
+  state.todos.forEach(function(x){ if(x.id === id) t = x; });
+  if(!t) return;
+  editId = id;
+  document.getElementById("editText").value = t.text;
+  document.getElementById("editDt").value = t.due || "";
+  document.getElementById("editMask").classList.add("show");
+  closeSwipe();
+}
+document.getElementById("editSave").addEventListener("click", function(){
+  if(editId === null) return;
+  var txt = document.getElementById("editText").value.trim();
+  if(!txt){ toast("待办内容不能为空"); return; }
+  state.todos.forEach(function(t){
+    if(t.id === editId){
+      t.text = txt;
+      t.due = document.getElementById("editDt").value || null;
+    }
+  });
+  editId = null;
+  document.getElementById("editMask").classList.remove("show");
+  save(); refreshAll(); toast("已更新");
+});
+document.getElementById("editCancel").addEventListener("click", function(){
+  editId = null;
+  document.getElementById("editMask").classList.remove("show");
+});
+document.getElementById("editClear").addEventListener("click", function(){
+  document.getElementById("editDt").value = "";
+});
 
 /* 清空示例 / 已完成 / 全部 */
 document.getElementById("btnClearSample").addEventListener("click", function(){
